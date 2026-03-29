@@ -38,7 +38,7 @@ function retrieveChunks(query, allChunks, topK = 3) {
 
 // ── Health Check ───────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.json({ status: "✅ History Chatbot Backend is running!" });
+  res.json({ status: "History Chatbot Backend is running!" });
 });
 
 // ── New Chat ───────────────────────────────────────────────
@@ -103,7 +103,7 @@ app.post("/api/chat", async (req, res) => {
   }
 
   try {
-    // 1. Load last 10 messages as history
+    // Load last 3 messages as history
     const { data: prevMessages, error: historyError } = await supabase
       .from("t_message")
       .select("role, content")
@@ -114,17 +114,17 @@ app.post("/api/chat", async (req, res) => {
     if (historyError) throw new Error(historyError.message);
     const history = (prevMessages || []).reverse();
 
-    // 2. Load all knowledge chunks
+    // Load all knowledge chunks
     const { data: chunks, error: knowledgeError } = await supabase
       .from("t_knowledge")
       .select("*");
 
     if (knowledgeError) throw new Error(knowledgeError.message);
 
-    // 3. Find relevant chunks
+    // Find relevant chunks
     const knowledge = retrieveChunks(message, chunks || []);
 
-    // 4. Build prompt
+    // Build prompt
     const prompt = `
 You are an assistant which answers questions based on knowledge which is provided to you.
 While answering, you don't use your internal knowledge, but solely the information in the
@@ -136,7 +136,7 @@ Conversation history: ${JSON.stringify(history)}
 The knowledge: ${knowledge || "No relevant content found."}
     `;
 
-    // 5. Call Groq API
+    // Call Groq API
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",  // free, fast, high quality
       messages: [{ role: "user", content: prompt }],
@@ -145,7 +145,7 @@ The knowledge: ${knowledge || "No relevant content found."}
 
     const reply = completion.choices[0].message.content;
 
-    // 6. Save both messages
+    // Save both messages
     const { error: saveError } = await supabase
       .from("t_message")
       .insert([
