@@ -109,7 +109,7 @@ app.post("/api/chat", async (req, res) => {
       .select("role, content")
       .eq("chat_id", chatId)
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(3);
 
     if (historyError) throw new Error(historyError.message);
     const history = (prevMessages || []).reverse();
@@ -161,6 +161,23 @@ The knowledge: ${knowledge || "No relevant content found."}
     console.error("❌ Error in /api/chat:", err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Update Chat Title ──────────────────────────────────────
+app.patch("/api/chats/:chatId/title", async (req, res) => {
+  const { chatId } = req.params;
+  const { title } = req.body;
+
+  const { error } = await supabase
+    .from("t_chat")
+    .update({ title })
+    .eq("chat_id", chatId);
+
+  if (error) {
+    console.error("Update title error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+  res.json({ success: true });
 });
 
 // ── Delete a Chat ──────────────────────────────────────────
