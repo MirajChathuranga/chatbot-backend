@@ -2,23 +2,23 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const Groq = require("groq-sdk");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ── Initialize Supabase and Gemini ─────────────────────────
+// ── Initialize Supabase and Groq ───────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ── Startup check — print env status ──────────────────────
+// ── Startup check ──────────────────────────────────────────
 console.log("SUPABASE_URL loaded:", !!process.env.SUPABASE_URL);
 console.log("SUPABASE_SERVICE_KEY loaded:", !!process.env.SUPABASE_SERVICE_KEY);
-console.log("GEMINI_API_KEY loaded:", !!process.env.GEMINI_API_KEY);
+console.log("GROQ_API_KEY loaded:", !!process.env.GROQ_API_KEY);
 
 // ── Keyword Retrieval ──────────────────────────────────────
 function retrieveChunks(query, allChunks, topK = 3) {
@@ -47,7 +47,7 @@ app.post("/api/chats/new", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
   const { data, error } = await supabase
-    .from("t_chat")                        // ✅ updated
+    .from("t_chat")
     .insert({ user_id: userId, title: "New Chat" })
     .select()
     .single();
@@ -56,7 +56,7 @@ app.post("/api/chats/new", async (req, res) => {
     console.error("New chat error:", error);
     return res.status(500).json({ error: error.message });
   }
-  res.json({ chatId: data.chat_id });      // ✅ updated
+  res.json({ chatId: data.chat_id });
 });
 
 // ── Get All Chats for a User ───────────────────────────────
@@ -65,7 +65,7 @@ app.get("/api/chats/:userId", async (req, res) => {
   console.log("Loading chats for userId:", userId);
 
   const { data, error } = await supabase
-    .from("t_chat")                        // ✅ updated
+    .from("t_chat")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -82,7 +82,7 @@ app.get("/api/messages/:chatId", async (req, res) => {
   const { chatId } = req.params;
 
   const { data, error } = await supabase
-    .from("t_message")                     // ✅ updated
+    .from("t_message")
     .select("*")
     .eq("chat_id", chatId)
     .order("created_at", { ascending: true });
@@ -105,7 +105,7 @@ app.post("/api/chat", async (req, res) => {
   try {
     // 1. Load last 10 messages as history
     const { data: prevMessages, error: historyError } = await supabase
-      .from("t_message")                   // ✅ updated
+      .from("t_message")
       .select("role, content")
       .eq("chat_id", chatId)
       .order("created_at", { ascending: false })
@@ -116,7 +116,7 @@ app.post("/api/chat", async (req, res) => {
 
     // 2. Load all knowledge chunks
     const { data: chunks, error: knowledgeError } = await supabase
-      .from("t_knowledge")                 // ✅ updated
+      .from("t_knowledge")
       .select("*");
 
     if (knowledgeError) throw new Error(knowledgeError.message);
@@ -136,14 +136,18 @@ Conversation history: ${JSON.stringify(history)}
 The knowledge: ${knowledge || "No relevant content found."}
     `;
 
-    // 5. Call Gemini
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const result = await model.generateContent(prompt);
-    const reply = result.response.text();
+    // 5. Call Groq API
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",  // free, fast, high quality
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 1024,
+    });
+
+    const reply = completion.choices[0].message.content;
 
     // 6. Save both messages
     const { error: saveError } = await supabase
-      .from("t_message")                   // ✅ updated
+      .from("t_message")
       .insert([
         { chat_id: chatId, role: "user",      content: message },
         { chat_id: chatId, role: "assistant", content: reply   }
@@ -163,8 +167,8 @@ The knowledge: ${knowledge || "No relevant content found."}
 app.delete("/api/chats/:chatId", async (req, res) => {
   const { chatId } = req.params;
 
-  await supabase.from("t_message").delete().eq("chat_id", chatId); // ✅ updated
-  const { error } = await supabase.from("t_chat").delete().eq("chat_id", chatId); // ✅ updated
+  await supabase.from("t_message").delete().eq("chat_id", chatId);
+  const { error } = await supabase.from("t_chat").delete().eq("chat_id", chatId);
 
   if (error) {
     console.error("Delete chat error:", error);
