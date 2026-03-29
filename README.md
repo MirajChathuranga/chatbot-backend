@@ -158,13 +158,13 @@ Server runs on `http://localhost:3000`
 {
   "userId": "uuid",
   "chatId": "uuid",
-  "message": "Who was Julius Caesar?"
+  "message": "Who is Gamika?"
 }
 ```
 
 **PATCH `/api/chats/:chatId/title`**
 ```json
-{ "title": "Who was Julius Caesar..." }
+{ "title": "Who is Gamika..." }
 ```
 
 ---
