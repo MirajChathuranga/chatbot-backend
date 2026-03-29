@@ -15,7 +15,12 @@ const supabase = createClient(
 );
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ── Keyword Retrieval Function ─────────────────────────────
+// ── Startup check — print env status ──────────────────────
+console.log("SUPABASE_URL loaded:", !!process.env.SUPABASE_URL);
+console.log("SUPABASE_SERVICE_KEY loaded:", !!process.env.SUPABASE_SERVICE_KEY);
+console.log("GEMINI_API_KEY loaded:", !!process.env.GEMINI_API_KEY);
+
+// ── Keyword Retrieval ──────────────────────────────────────
 function retrieveChunks(query, allChunks, topK = 3) {
   const queryWords = query.toLowerCase().split(/\s+/);
   const scored = allChunks.map(chunk => {
@@ -39,32 +44,36 @@ app.get("/", (req, res) => {
 // ── New Chat ───────────────────────────────────────────────
 app.post("/api/chats/new", async (req, res) => {
   const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "userId is required" });
-  }
+  if (!userId) return res.status(400).json({ error: "userId is required" });
 
   const { data, error } = await supabase
-    .from("chats")
+    .from("t_chat")                        // ✅ updated
     .insert({ user_id: userId, title: "New Chat" })
     .select()
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ chatId: data.id });
+  if (error) {
+    console.error("New chat error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+  res.json({ chatId: data.chat_id });      // ✅ updated
 });
 
 // ── Get All Chats for a User ───────────────────────────────
 app.get("/api/chats/:userId", async (req, res) => {
   const { userId } = req.params;
+  console.log("Loading chats for userId:", userId);
 
   const { data, error } = await supabase
-    .from("chats")
+    .from("t_chat")                        // ✅ updated
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error("Get chats error:", error);
+    return res.status(500).json({ error: error.message });
+  }
   res.json({ chats: data });
 });
 
@@ -73,12 +82,15 @@ app.get("/api/messages/:chatId", async (req, res) => {
   const { chatId } = req.params;
 
   const { data, error } = await supabase
-    .from("messages")
+    .from("t_message")                     // ✅ updated
     .select("*")
     .eq("chat_id", chatId)
     .order("created_at", { ascending: true });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error("Get messages error:", error);
+    return res.status(500).json({ error: error.message });
+  }
   res.json({ messages: data });
 });
 
@@ -91,9 +103,9 @@ app.post("/api/chat", async (req, res) => {
   }
 
   try {
-    // 1. Load last 10 messages as conversation history
+    // 1. Load last 10 messages as history
     const { data: prevMessages, error: historyError } = await supabase
-      .from("messages")
+      .from("t_message")                   // ✅ updated
       .select("role, content")
       .eq("chat_id", chatId)
       .order("created_at", { ascending: false })
@@ -102,17 +114,17 @@ app.post("/api/chat", async (req, res) => {
     if (historyError) throw new Error(historyError.message);
     const history = (prevMessages || []).reverse();
 
-    // 2. Load all knowledge chunks from Supabase
+    // 2. Load all knowledge chunks
     const { data: chunks, error: knowledgeError } = await supabase
-      .from("knowledge")
+      .from("t_knowledge")                 // ✅ updated
       .select("*");
 
     if (knowledgeError) throw new Error(knowledgeError.message);
 
-    // 3. Find relevant chunks using keyword retrieval
+    // 3. Find relevant chunks
     const knowledge = retrieveChunks(message, chunks || []);
 
-    // 4. Build the prompt
+    // 4. Build prompt
     const prompt = `
 You are an assistant which answers questions based on knowledge which is provided to you.
 While answering, you don't use your internal knowledge, but solely the information in the
@@ -124,14 +136,14 @@ Conversation history: ${JSON.stringify(history)}
 The knowledge: ${knowledge || "No relevant content found."}
     `;
 
-    // 5. Call Gemini API
+    // 5. Call Gemini
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent(prompt);
     const reply = result.response.text();
 
-    // 6. Save both user message and assistant reply to DB
+    // 6. Save both messages
     const { error: saveError } = await supabase
-      .from("messages")
+      .from("t_message")                   // ✅ updated
       .insert([
         { chat_id: chatId, role: "user",      content: message },
         { chat_id: chatId, role: "assistant", content: reply   }
@@ -151,11 +163,13 @@ The knowledge: ${knowledge || "No relevant content found."}
 app.delete("/api/chats/:chatId", async (req, res) => {
   const { chatId } = req.params;
 
-  // Delete messages first, then the chat
-  await supabase.from("messages").delete().eq("chat_id", chatId);
-  const { error } = await supabase.from("chats").delete().eq("id", chatId);
+  await supabase.from("t_message").delete().eq("chat_id", chatId); // ✅ updated
+  const { error } = await supabase.from("t_chat").delete().eq("chat_id", chatId); // ✅ updated
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error("Delete chat error:", error);
+    return res.status(500).json({ error: error.message });
+  }
   res.json({ success: true });
 });
 
